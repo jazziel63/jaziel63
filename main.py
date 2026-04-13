@@ -11,22 +11,32 @@ st.set_page_config(page_title="학교 차량 조회 시스템", layout="centered
 # [사용자 시트 주소]
 URL = "https://docs.google.com/spreadsheets/d/1fXf_WsaVgJJL8kr_22mRLhTrnYMZXm_HfAW9Y97GoMI/edit"
 
-# --- 구글 시트 직접 연결 함수 ---
+# --- 구글 시트 직접 연결 함수 (인증 오류 해결 강화 버전) ---
 def get_gspread_client():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
-        # Secrets에서 직접 수정하지 않고 딕셔너리로 새로 복사해서 사용 (에러 방지 핵심)
+        # 1. Secrets 데이터를 딕셔너리로 안전하게 복사
         secrets_dict = st.secrets["gcp_service_account"]
         info = {k: v for k, v in secrets_dict.items()}
         
         if "private_key" in info:
-            # 줄바꿈 처리
-            info["private_key"] = info["private_key"].replace("\\n", "\n")
+            # 2. 텍스트로 인식된 \n을 실제 줄바꿈으로 변경하고 앞뒤 공백 제거
+            p_key = info["private_key"].replace("\\n", "\n").strip()
+            
+            # 3. 양 끝에 혹시 모를 중복 따옴표('"')가 포함되어 있다면 제거 (에러 방지 핵심)
+            if p_key.startswith('"') and p_key.endswith('"'):
+                p_key = p_key[1:-1]
+            if p_key.startswith("'") and p_key.endswith("'"):
+                p_key = p_key[1:-1]
+            
+            # 보정된 키를 다시 삽입
+            info["private_key"] = p_key
         
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
     except Exception as e:
+        # 에러 발생 시 원인을 구체적으로 표시하여 디버깅 지원
         st.error(f"인증 정보 로드 실패: {e}")
         return None
 
