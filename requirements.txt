@@ -3,3 +3,5 @@ streamlit-gsheets
 pandas
 gspread
 google-auth
+st-gsheets-connection
+requests
