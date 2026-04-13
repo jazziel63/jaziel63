@@ -2,56 +2,37 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta, timezone
+import streamlit.components.v1 as components
 
 # 웹페이지 설정
 st.set_page_config(page_title="학교 차량 조회 시스템", layout="centered")
 
-# --- 글씨 크기 미세 조정 스타일 설정 ---
+# --- 스타일 및 숫자 패드 강제 호출 스크립트 ---
 st.markdown("""
     <style>
-    /* 전체 기본 글씨 크기 표준화 */
-    html, body, [class*="css"]  {
-        font-size: 0.95rem; 
-    }
-    .main-title {
-        font-size: 1.4rem !important; /* 제목 크기 약간 더 축소 */
-        font-weight: bold;
-        padding-bottom: 0.8rem;
-        color: #31333F;
-    }
-    .stTextInput label {
-        font-size: 1.0rem !important;
-        font-weight: bold !important;
-    }
-    .stTextInput input {
-        font-size: 1.2rem !important;
-        height: 2.6rem !important;
-    }
-    .stButton button {
-        width: 100%;
-        height: 2.8rem !important;
-        font-size: 1.1rem !important;
-        font-weight: bold !important;
-    }
-    /* 검색 결과 성공 메시지 크기 조절 */
-    .stAlert p {
-        font-size: 1.0rem !important;
-    }
-    /* [수정] 결과 박스(Expander) 제목과 내부 글씨 크기 축소 */
-    .st-expander {
-        border: 1px solid #f0f2f6 !important;
-    }
-    .st-expander p {
-        font-size: 1.0rem !important; /* 결과 텍스트 크기 줄임 */
-        line-height: 1.4;
-        margin-bottom: 0.3rem;
-    }
-    .st-expander [data-testid="stExpanderToggleIcon"] + div {
-        font-size: 1.05rem !important; /* 리스트 제목 크기 줄임 */
-        font-weight: bold;
-    }
+    html, body, [class*="css"]  { font-size: 0.95rem; }
+    .main-title { font-size: 1.4rem !important; font-weight: bold; padding-bottom: 0.8rem; color: #31333F; }
+    .stTextInput label { font-size: 1.0rem !important; font-weight: bold !important; }
+    .stTextInput input { font-size: 1.2rem !important; height: 2.6rem !important; }
+    .stButton button { width: 100%; height: 2.8rem !important; font-size: 1.1rem !important; font-weight: bold !important; }
+    .stAlert p { font-size: 1.0rem !important; }
+    .st-expander p { font-size: 1.0rem !important; line-height: 1.4; margin-bottom: 0.3rem; }
     </style>
     """, unsafe_allow_html=True)
+
+# 자바스크립트를 이용해 input 요소를 찾아서 숫자 패드용 속성(inputmode)을 주입합니다.
+components.html(
+    """
+    <script>
+    var input = window.parent.document.querySelector('input[type="text"]');
+    if (input) {
+        input.setAttribute('inputmode', 'numeric');
+        input.setAttribute('pattern', '[0-9]*');
+    }
+    </script>
+    """,
+    height=0,
+)
 
 st.markdown('<div class="main-title">🚗 차량 번호 조회 시스템</div>', unsafe_allow_html=True)
 
@@ -72,6 +53,7 @@ try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     df = conn.read(spreadsheet=URL, ttl=0).fillna("정보 없음")
 
+    # 입력창
     search_input = st.text_input(
         "차량번호 조회", 
         key="car_input",
