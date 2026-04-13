@@ -2,37 +2,23 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta, timezone
-import streamlit.components.v1 as components
 
 # 웹페이지 설정
 st.set_page_config(page_title="학교 차량 조회 시스템", layout="centered")
 
-# --- 스타일 및 숫자 패드 강제 호출 스크립트 ---
+# --- 스타일 설정 ---
 st.markdown("""
     <style>
     html, body, [class*="css"]  { font-size: 0.95rem; }
     .main-title { font-size: 1.4rem !important; font-weight: bold; padding-bottom: 0.8rem; color: #31333F; }
-    .stTextInput label { font-size: 1.0rem !important; font-weight: bold !important; }
-    .stTextInput input { font-size: 1.2rem !important; height: 2.6rem !important; }
+    .stNumberInput label { font-size: 1.0rem !important; font-weight: bold !important; }
+    .stNumberInput input { font-size: 1.2rem !important; height: 2.6rem !important; }
     .stButton button { width: 100%; height: 2.8rem !important; font-size: 1.1rem !important; font-weight: bold !important; }
-    .stAlert p { font-size: 1.0rem !important; }
-    .st-expander p { font-size: 1.0rem !important; line-height: 1.4; margin-bottom: 0.3rem; }
+    /* 숫자 입력창 옆의 + / - 버튼 숨기기 */
+    button.step-up, button.step-down { display: none; }
+    div[data-testid="stNumberInputStepDown"], div[data-testid="stNumberInputStepUp"] { display: none; }
     </style>
     """, unsafe_allow_html=True)
-
-# 자바스크립트를 이용해 input 요소를 찾아서 숫자 패드용 속성(inputmode)을 주입합니다.
-components.html(
-    """
-    <script>
-    var input = window.parent.document.querySelector('input[type="text"]');
-    if (input) {
-        input.setAttribute('inputmode', 'numeric');
-        input.setAttribute('pattern', '[0-9]*');
-    }
-    </script>
-    """,
-    height=0,
-)
 
 st.markdown('<div class="main-title">🚗 차량 번호 조회 시스템</div>', unsafe_allow_html=True)
 
@@ -43,7 +29,7 @@ def get_now_kst():
 URL = "https://docs.google.com/spreadsheets/d/1fXf_WsaVgJJL8kr_22mRLhTrnYMZXm_HfAW9Y97GoMI/edit?gid=1417331015#gid=1417331015"
 
 def reset_search():
-    st.session_state["car_input"] = "" 
+    st.session_state["search_val"] = 0
     st.session_state["search_submitted"] = False
 
 if "search_submitted" not in st.session_state:
@@ -53,25 +39,38 @@ try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     df = conn.read(spreadsheet=URL, ttl=0).fillna("정보 없음")
 
-    # 입력창
-    search_input = st.text_input(
-        "차량번호 조회", 
-        key="car_input",
-        max_chars=4,
-        placeholder="차량 뒷번호 4자리를 입력하세요",
-    ).strip()
-    
-    if search_input and not search_input.isdigit():
-        st.warning("⚠️ 숫자만 입력 가능합니다.")
-        search_input = ""
+    # [핵심 수정] st.number_input을 사용하여 숫자 패드 강제 호출
+    # value=None으로 설정하여 처음엔 비워둡니다.
+    search_val = st.number_input(
+        "차량번호 뒷자리 입력",
+        min_value=0,
+        max_value=9999,
+        value=None,
+        step=1,
+        format="%d",
+        key="search_val",
+        placeholder="4자리 숫자 입력"
+    )
 
     submit_button = st.button("🔍 조회하기")
 
-    if (submit_button or st.session_state["search_submitted"]) and len(search_input) >= 3:
+    if (submit_button or st.session_state["search_submitted"]) and search_val is not None:
         st.session_state["search_submitted"] = True
         
+        # [중요] 숫자를 다시 4자리 문자열로 변환 (예: 822 -> "0822")
+        # 이 과정이 있어야 0으로 시작하는 번호도 검색이 됩니다.
+        search_input = str(int(search_val)).zfill(4)
+        
+        # 만약 사용자가 3자리만 입력하고 싶어할 수도 있으므로 zfill 없이도 검색 시도
+        search_input_3 = str(int(search_val))
+        
         df['검색용번호'] = df['차량번호'].astype(str).str.replace(" ", "")
-        results = df[df['검색용번호'].str.contains(search_input)]
+        
+        # 4자리(0포함) 또는 입력한 숫자 자체가 포함된 경우 검색
+        results = df[
+            df['검색용번호'].str.contains(search_input) | 
+            df['검색용번호'].str.endswith(search_input_3)
+        ].drop_duplicates()
         
         now = get_now_kst()
         
@@ -92,9 +91,9 @@ try:
                     with open("log.txt", "a", encoding="utf-8") as f: f.write(log_entry)
                 except: pass
         else:
-            st.error(f"❌ '{search_input}' 등록 정보 없음")
+            st.error(f"❌ '{search_input_3}' 등록 정보 없음")
             try:
-                log_entry = f"{now},{search_input},정보없음,정보없음,정보없음,정보없음,미등록\n"
+                log_entry = f"{now},{search_input_3},정보없음,정보없음,정보없음,정보없음,미등록\n"
                 with open("log.txt", "a", encoding="utf-8") as f: f.write(log_entry)
             except: pass
 
