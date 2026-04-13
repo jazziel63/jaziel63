@@ -5,12 +5,14 @@ from datetime import datetime, timedelta, timezone
 
 # 웹페이지 설정
 st.set_page_config(page_title="학교 차량 조회 시스템", layout="centered")
-st.title("🚗 차량 번호 조회")
+st.title("🚗 차량 뒷번호 4자리 조회")
 
+# 한국 시간 설정
 def get_now_kst():
     kst = timezone(timedelta(hours=9))
     return datetime.now(kst).strftime('%Y-%m-%d %H:%M:%S')
 
+# 구글 시트 주소
 URL = "https://docs.google.com/spreadsheets/d/1fXf_WsaVgJJL8kr_22mRLhTrnYMZXm_HfAW9Y97GoMI/edit?gid=1417331015#gid=1417331015"
 
 # --- 초기화 함수 ---
@@ -25,6 +27,7 @@ try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     df = conn.read(spreadsheet=URL, ttl=0)
 
+    # 1. 입력창 (숫자 입력 최적화)
     search_input = st.text_input(
         "차량번호 조회", 
         key="car_input",
@@ -33,8 +36,14 @@ try:
         help="숫자 4자리만 입력해 주세요."
     ).strip()
     
+    # [추가] 숫자 이외의 문자가 입력되었는지 실시간 체크
+    if search_input and not search_input.isdigit():
+        st.warning("⚠️ 숫자만 입력 가능합니다. 다시 입력해 주세요.")
+        search_input = "" # 잘못된 입력은 검색에 사용되지 않도록 비움
+
     submit_button = st.button("🔍 조회하기")
 
+    # 2. 검색 및 결과 출력
     if (submit_button or st.session_state["search_submitted"]) and len(search_input) == 4:
         st.session_state["search_submitted"] = True
         
@@ -51,7 +60,6 @@ try:
                 car_type = res.get('차량종류', '정보 없음')
                 reason = res.get('제외사유', '없음')
                 
-                # [명칭 변경] 차주, 차종, 제외사유
                 with st.expander(f"📍 {full_car_no} ({name})", expanded=True):
                     st.write(f"**차주:** {name}")
                     st.write(f"**차종:** {car_type}")
@@ -71,6 +79,7 @@ try:
                 st.caption("📂 미등록 차량 조회 기록이 저장되었습니다.")
             except: pass
 
+    # 3. 다시 조회하기 버튼
     if st.session_state["search_submitted"]:
         st.divider()
         st.button("🔄 다시 조회하기", on_click=reset_search)
