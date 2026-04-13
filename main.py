@@ -11,31 +11,18 @@ st.set_page_config(page_title="학교 차량 조회 시스템", layout="centered
 # [사용자 시트 주소]
 URL = "https://docs.google.com/spreadsheets/d/1fXf_WsaVgJJL8kr_22mRLhTrnYMZXm_HfAW9Y97GoMI/edit"
 
-# --- 구글 시트 직접 연결 함수 (인증 오류 해결 강화 버전) ---
+# --- 구글 시트 직접 연결 함수 ---
 def get_gspread_client():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        
-        # Secrets 읽기
         secrets_dict = st.secrets["gcp_service_account"]
         info = {k: v for k, v in secrets_dict.items()}
-        
         if "private_key" in info:
-            # 1. 혹시 모를 앞뒤의 따옴표나 불필요한 공백을 완전히 제거
-            p_key = info["private_key"].strip()
-            
-            # 2. 텍스트 형태의 \n이 섞여있다면 실제 줄바꿈으로 변환
-            p_key = p_key.replace("\\n", "\n")
-            
-            # 3. 만약 큰따옴표나 작은따옴표가 전체를 감싸고 있다면 한 번 더 제거
+            p_key = info["private_key"].strip().replace("\\n", "\n")
             if (p_key.startswith('"') and p_key.endswith('"')) or (p_key.startswith("'") and p_key.endswith("'")):
                 p_key = p_key[1:-1].strip()
-            
-            # 4. 여러 줄 형식을 위해 불필요한 \r(캐리지 리턴) 제거
             p_key = p_key.replace("\r", "")
-            
             info["private_key"] = p_key
-        
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
     except Exception as e:
@@ -71,7 +58,7 @@ def check_violation(full_car_no):
     except:
         return False
 
-# --- 스타일 설정 ---
+# --- 스타일 설정 (안내 문구 숨기기 포함) ---
 st.markdown("""
     <style>
     html, body, [class*="css"]  { font-size: 0.95rem; }
@@ -81,6 +68,10 @@ st.markdown("""
         border: 2px solid #FF4B4B; padding: 12px; border-radius: 10px; 
         text-align: center; margin-bottom: 10px; 
     }
+    /* 안내 문구 숨기기 (Press Enter to submit 등) */
+    div[data-testid="stMarkdownContainer"] p { margin-bottom: 0px; }
+    div[data-testid="InputInstructions"] { display: none !important; }
+    
     div[data-testid="stNumberInput"] > label { display: none !important; }
     input[type=number]::-webkit-inner-spin-button, 
     input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -103,20 +94,19 @@ if "search_submitted" not in st.session_state:
 
 try:
     client = get_gspread_client()
-    
     if client:
-        # 데이터 불러오기 (첫 번째 시트)
         sheet = client.open_by_url(URL).get_worksheet(0)
         data = sheet.get_all_records()
         df = pd.DataFrame(data).fillna("-")
 
         with st.form("search_form", clear_on_submit=False):
+            # value=None으로 설정하여 초기 안내 문구 방지
             search_val = st.number_input(
                 label="차량번호조회", label_visibility="collapsed",
                 min_value=0, max_value=9999, value=None, step=1, format="%d",
                 key="search_val", placeholder="차량 뒷번호 4자리를 입력하세요."
             )
-            submit_button = st.form_submit_button("🔍 점검 결과 확인", use_container_width=True)
+            submit_button = st.form_submit_button("🔍 조회 결과 확인", use_container_width=True)
 
         if (submit_button or st.session_state["search_submitted"]) and search_val is not None:
             st.session_state["search_submitted"] = True
@@ -135,11 +125,9 @@ try:
                     name = res.get('성명', '-')
                     car_type = res.get('차량종류', '-')
                     reason = str(res.get('제외사유', '-')).strip()
-                    
                     is_v = check_violation(full_car_no)
                     invalid_reasons = ["-", "해당없음", "정보 없음", "정보없음", ""]
                     has_exception = reason not in invalid_reasons
-
                     status_for_log = "정상"
                     with st.expander(f"📍 {full_car_no} ({name})", expanded=True):
                         if has_exception:
@@ -149,27 +137,22 @@ try:
                             status_for_log = "위반 검토 대상"
                         else:
                             st.success("✅ 정상 차량입니다.")
-
                         st.write(f"**차주:** {name} | **차종:** {car_type}")
                         st.write(f"**제외사유:** {reason}")
-                    
                     save_log_to_sheets(client, [now, search_val, full_car_no, name, reason, "등록차량", status_for_log])
             else:
                 st.error(f"❌ '{search_num_str}' 등록 정보가 없습니다.")
                 is_v_unreg = check_violation(search_num_str)
                 status_unreg = "위반 검토 대상(미등록)" if is_v_unreg else "정상(미등록)"
-                
                 if is_v_unreg:
                     st.markdown(f'<div class="violation-box">⚠️ 위반 검토 대상입니다.(미등록)</div>', unsafe_allow_html=True)
-                
                 save_log_to_sheets(client, [now, search_val, "정보없음", "정보없음", "정보없음", "미등록", status_unreg])
 
         if st.session_state["search_submitted"]:
             st.divider()
-            if st.button("🔄 다시 점검하기"):
+            if st.button("🔄 다시 조회하기"):
                 st.session_state["search_val"] = None
                 st.session_state["search_submitted"] = False
                 st.rerun()
-
 except Exception as e:
     st.error(f"⚠️ 연결 오류가 발생했습니다. 원인: {e}")
