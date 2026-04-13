@@ -31,7 +31,6 @@ def get_gspread_client():
 
 def get_remote_ip():
     try:
-        # IPv4 주소를 우선적으로 가져오기 위해 전용 API 사용
         response = requests.get('https://api.ipify.org?format=json', timeout=5)
         return response.json()['ip']
     except:
@@ -52,46 +51,50 @@ def get_violation_info(full_car_no):
     try:
         kst = timezone(timedelta(hours=9))
         today_day = datetime.now(kst).day
-        
         if today_day == 31:
             return False, "(31일 모든 차량 운행 가능)"
-        
         is_today_odd = (today_day % 2 != 0)
         day_type_str = "(홀수차 운행일)" if is_today_odd else "(짝수차 운행일)"
-        
         digits = [char for char in str(full_car_no) if char.isdigit()]
         if not digits: return False, day_type_str
-        
         last_digit = int(digits[-1])
         is_violation = (today_day % 2 != last_digit % 2)
-        
         return is_violation, day_type_str
     except:
         return False, ""
 
-# --- 스타일 설정 ---
+# --- 스타일 설정 (글자 밀림 방지 보강) ---
 st.markdown("""
     <style>
-    html, body, [class*="css"]  { font-size: 0.95rem; }
-    .main-title { font-size: 1.4rem !important; font-weight: bold; padding-bottom: 0.8rem; color: #31333F; }
-    .violation-box { 
-        background-color: #FFF0F0; color: #FF4B4B; font-weight: bold; 
-        border: 2px solid #FF4B4B; padding: 12px; border-radius: 10px; 
-        text-align: center; margin-top: 10px; margin-bottom: 10px; 
+    /* 기본 폰트 크기 조정 */
+    html, body, [class*="css"]  { font-size: 0.92rem; }
+    
+    /* 타이틀 스타일 */
+    .main-title { font-size: 1.3rem !important; font-weight: bold; padding-bottom: 0.8rem; color: #31333F; }
+    
+    /* 결과 박스 공통 스타일: 줄바꿈 방지 추가 */
+    .violation-box, .normal-box { 
+        font-weight: bold; 
+        padding: 10px; 
+        border-radius: 10px; 
+        text-align: center; 
+        margin-top: 8px; 
+        margin-bottom: 8px;
+        white-space: nowrap; /* 글자가 옆으로 넘쳐도 아래로 안 떨어지게 설정 */
+        overflow: hidden;
+        text-overflow: ellipsis; /* 공간이 아주 부족하면 ... 처리 */
     }
-    .normal-box { 
-        background-color: #F0F8FF; color: #1E90FF; font-weight: bold; 
-        border: 2px solid #1E90FF; padding: 12px; border-radius: 10px; 
-        text-align: center; margin-top: 10px; margin-bottom: 10px; 
-    }
+    
+    .violation-box { background-color: #FFF0F0; color: #FF4B4B; border: 2px solid #FF4B4B; }
+    .normal-box { background-color: #F0F8FF; color: #1E90FF; border: 2px solid #1E90FF; }
+    
+    /* Expander 내부 글자 줄간격 조정 */
+    .stExpander div { line-height: 1.4 !important; }
+    
+    /* 입력창 디자인 최적화 */
     div[data-testid="InputInstructions"] { display: none !important; }
     div[data-testid="stNumberInput"] > label { display: none !important; }
-    input[type=number]::-webkit-inner-spin-button, 
-    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    input[type=number] { -moz-appearance: textfield; }
-    button[data-testid="stNumberInputStepDown"], 
-    button[data-testid="stNumberInputStepUp"] { display: none !important; }
-    .stNumberInput input { font-size: 1.2rem !important; height: 2.8rem !important; }
+    .stNumberInput input { font-size: 1.1rem !important; height: 2.6rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -142,35 +145,32 @@ try:
                     invalid_reasons = ["-", "해당없음", "정보 없음", "정보없음", ""]
                     has_exception = reason not in invalid_reasons
 
-                    # 1. 정보 박스(Expander) 먼저 출력
                     with st.expander(f"📍 {full_car_no} ({name})", expanded=True):
                         st.write(f"**차주:** {name} | **구분:** {category} | **차종:** {car_type}")
                         st.write(f"**제외사유:** {reason}")
 
-                    # 2. 정보 박스 아래에 결과 박스 출력
                     status_for_log = ""
                     if has_exception:
-                        st.markdown(f'<div class="normal-box">✅ 정상 차량입니다. ({reason})</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="normal-box">✅ 정상 차량 ({reason})</div>', unsafe_allow_html=True)
                         status_for_log = f"정상 ({reason})"
                     elif is_v:
-                        st.markdown(f'<div class="violation-box">⚠️ 위반 검토 대상입니다. {day_info}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="violation-box">⚠️ 위반 검토 대상 {day_info}</div>', unsafe_allow_html=True)
                         status_for_log = f"위반 검토 대상 {day_info}"
                     else:
-                        st.markdown(f'<div class="normal-box">✅ 정상 차량입니다. {day_info}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="normal-box">✅ 정상 차량 {day_info}</div>', unsafe_allow_html=True)
                         status_for_log = f"정상 {day_info}"
                     
                     save_log_to_sheets(client, [now, search_val, full_car_no, name, category, reason, "등록차량", status_for_log])
             else:
-                # 미등록 차량 처리 (기존 유지)
                 st.error(f"❌ '{search_num_str}' 등록 정보가 없습니다.")
                 st.info("ℹ️ 미등록 차량입니다.")
                 
                 is_v_unreg, day_info_unreg = get_violation_info(search_num_str)
                 if is_v_unreg:
-                    st.markdown(f'<div class="violation-box">⚠️ 위반 검토 대상입니다. {day_info_unreg}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="violation-box">⚠️ 위반 검토 대상 {day_info_unreg}</div>', unsafe_allow_html=True)
                     status_unreg = f"위반 검토 대상(미등록) {day_info_unreg}"
                 else:
-                    st.markdown(f'<div class="normal-box">✅ 정상 차량입니다. {day_info_unreg}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="normal-box">✅ 정상 차량 {day_info_unreg}</div>', unsafe_allow_html=True)
                     status_unreg = f"정상(미등록) {day_info_unreg}"
                 
                 save_log_to_sheets(client, [now, search_val, "정보없음", "정보없음", "정보없음", "정보없음", "미등록", status_unreg])
