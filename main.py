@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 import gspread
@@ -12,6 +11,25 @@ st.set_page_config(page_title="학교 차량 조회 시스템", layout="centered
 # [사용자 시트 주소]
 URL = "https://docs.google.com/spreadsheets/d/1fXf_WsaVgJJL8kr_22mRLhTrnYMZXm_HfAW9Y97GoMI/edit"
 
+# --- 구글 시트 직접 연결 함수 ---
+def get_gspread_client():
+    try:
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        
+        # Secrets에서 직접 수정하지 않고 딕셔너리로 새로 복사해서 사용 (에러 방지 핵심)
+        secrets_dict = st.secrets["gcp_service_account"]
+        info = {k: v for k, v in secrets_dict.items()}
+        
+        if "private_key" in info:
+            # 줄바꿈 처리
+            info["private_key"] = info["private_key"].replace("\\n", "\n")
+        
+        creds = Credentials.from_service_account_info(info, scopes=scope)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"인증 정보 로드 실패: {e}")
+        return None
+
 def get_remote_ip():
     try:
         response = requests.get('https://api64.ipify.org?format=json', timeout=5)
@@ -19,19 +37,11 @@ def get_remote_ip():
     except:
         return "IP 확인 불가"
 
-def save_log_to_sheets(log_data):
+# --- 로그 저장 함수 ---
+def save_log_to_sheets(client, log_data):
     try:
-        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        info = st.secrets["gcp_service_account"].to_dict()
-        if "private_key" in info:
-            info["private_key"] = info["private_key"].replace("\\n", "\n")
-        
-        creds = Credentials.from_service_account_info(info, scopes=scope)
-        client = gspread.authorize(creds)
-        
         user_ip = get_remote_ip()
         log_data.insert(1, user_ip)
-        
         sheet = client.open_by_url(URL).worksheet("log")
         sheet.append_row(log_data)
     except Exception as e:
@@ -45,9 +55,7 @@ def check_violation(full_car_no):
         digits = [char for char in str(full_car_no) if char.isdigit()]
         if not digits: return False
         last_digit = int(digits[-1])
-        if (today_day % 2 != last_digit % 2):
-            return True
-        return False
+        return (today_day % 2 != last_digit % 2)
     except:
         return False
 
@@ -68,88 +76,88 @@ st.markdown("""
     button[data-testid="stNumberInputStepDown"], 
     button[data-testid="stNumberInputStepUp"] { display: none !important; }
     .stNumberInput input { font-size: 1.2rem !important; height: 2.8rem !important; }
-    /* 폼 테두리 제거 */
     [data-testid="stForm"] { border: none; padding: 0; }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">🚗 학교 차량 조회 시스템</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🚗 학교 차량 출입 점검 시스템</div>', unsafe_allow_html=True)
 
 def get_now_kst():
     kst = timezone(timedelta(hours=9))
     return datetime.now(kst).strftime('%Y-%m-%d %H:%M:%S')
 
-def reset_search():
-    st.session_state["search_val"] = None
-    st.session_state["search_submitted"] = False
-
 if "search_submitted" not in st.session_state:
     st.session_state["search_submitted"] = False
 
 try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read(spreadsheet=URL, ttl=0).fillna("-")
+    client = get_gspread_client()
+    
+    if client:
+        # 데이터 불러오기 (첫 번째 시트)
+        sheet = client.open_by_url(URL).get_worksheet(0)
+        data = sheet.get_all_records()
+        df = pd.DataFrame(data).fillna("-")
 
-    # --- 엔터 키 지원을 위해 Form 사용 ---
-    with st.form("search_form", clear_on_submit=False):
-        search_val = st.number_input(
-            label="차량번호조회", 
-            label_visibility="collapsed",
-            min_value=0, max_value=9999, value=None, step=1, format="%d",
-            key="search_val", placeholder="차량 뒷번호 4자리를 입력하세요."
-        )
-        submit_button = st.form_submit_button("🔍 조회 결과 확인", use_container_width=True)
+        with st.form("search_form", clear_on_submit=False):
+            search_val = st.number_input(
+                label="차량번호조회", label_visibility="collapsed",
+                min_value=0, max_value=9999, value=None, step=1, format="%d",
+                key="search_val", placeholder="차량 뒷번호 4자리를 입력하세요."
+            )
+            submit_button = st.form_submit_button("🔍 점검 결과 확인", use_container_width=True)
 
-    # 조회 로직 실행
-    if (submit_button or st.session_state["search_submitted"]) and search_val is not None:
-        st.session_state["search_submitted"] = True
-        search_num_str = str(int(search_val))
-        search_input_4 = search_num_str.zfill(4)
-        
-        df['검색용번호'] = df['차량번호'].astype(str).str.replace(" ", "")
-        results = df[df['검색용번호'].str.contains(search_input_4) | df['검색용번호'].str.endswith(search_num_str)].drop_duplicates()
-        
-        now = get_now_kst()
-        
-        if not results.empty:
-            st.success(f"조회 결과 ({len(results)}건)")
-            for i, res in results.iterrows():
-                full_car_no = res.get('차량번호', '-')
-                name = res.get('성명', '-')
-                car_type = res.get('차량종류', '-')
-                reason = str(res.get('제외사유', '-')).strip()
-                
-                is_v = check_violation(full_car_no)
-                invalid_reasons = ["-", "해당없음", "정보 없음", "정보없음", ""]
-                has_exception = reason not in invalid_reasons
-
-                status_for_log = "정상"
-                with st.expander(f"📍 {full_car_no} ({name})", expanded=True):
-                    if has_exception:
-                        st.info(f"✅ 정상 차량입니다. ({reason})")
-                    elif is_v:
-                        st.markdown('<div class="violation-box">⚠️ 위반 검토 대상입니다.</div>', unsafe_allow_html=True)
-                        status_for_log = "위반 검토 대상"
-                    else:
-                        st.success("✅ 정상 차량입니다.")
-
-                    st.write(f"**차주:** {name} | **차종:** {car_type}")
-                    st.write(f"**제외사유:** {reason}")
-                
-                save_log_to_sheets([now, search_val, full_car_no, name, reason, "등록차량", status_for_log])
-        else:
-            st.error(f"❌ '{search_num_str}' 등록 정보가 없습니다.")
-            is_v_unreg = check_violation(search_num_str)
-            status_unreg = "위반 검토 대상(미등록)" if is_v_unreg else "정상(미등록)"
+        if (submit_button or st.session_state["search_submitted"]) and search_val is not None:
+            st.session_state["search_submitted"] = True
+            search_num_str = str(int(search_val))
+            search_input_4 = search_num_str.zfill(4)
             
-            if is_v_unreg:
-                st.markdown(f'<div class="violation-box">⚠️ 위반 검토 대상입니다.(미등록)</div>', unsafe_allow_html=True)
+            df['검색용번호'] = df['차량번호'].astype(str).str.replace(" ", "")
+            results = df[df['검색용번호'].str.contains(search_input_4) | df['검색용번호'].str.endswith(search_num_str)].drop_duplicates()
             
-            save_log_to_sheets([now, search_val, "정보없음", "정보없음", "정보없음", "미등록", status_unreg])
+            now = get_now_kst()
+            
+            if not results.empty:
+                st.success(f"조회 결과 ({len(results)}건)")
+                for i, res in results.iterrows():
+                    full_car_no = res.get('차량번호', '-')
+                    name = res.get('성명', '-')
+                    car_type = res.get('차량종류', '-')
+                    reason = str(res.get('제외사유', '-')).strip()
+                    
+                    is_v = check_violation(full_car_no)
+                    invalid_reasons = ["-", "해당없음", "정보 없음", "정보없음", ""]
+                    has_exception = reason not in invalid_reasons
 
-    if st.session_state["search_submitted"]:
-        st.divider()
-        st.button("🔄 다시 조회하기", on_click=reset_search)
+                    status_for_log = "정상"
+                    with st.expander(f"📍 {full_car_no} ({name})", expanded=True):
+                        if has_exception:
+                            st.info(f"✅ 정상 차량입니다. ({reason})")
+                        elif is_v:
+                            st.markdown('<div class="violation-box">⚠️ 위반 검토 대상입니다.</div>', unsafe_allow_html=True)
+                            status_for_log = "위반 검토 대상"
+                        else:
+                            st.success("✅ 정상 차량입니다.")
+
+                        st.write(f"**차주:** {name} | **차종:** {car_type}")
+                        st.write(f"**제외사유:** {reason}")
+                    
+                    save_log_to_sheets(client, [now, search_val, full_car_no, name, reason, "등록차량", status_for_log])
+            else:
+                st.error(f"❌ '{search_num_str}' 등록 정보가 없습니다.")
+                is_v_unreg = check_violation(search_num_str)
+                status_unreg = "위반 검토 대상(미등록)" if is_v_unreg else "정상(미등록)"
+                
+                if is_v_unreg:
+                    st.markdown(f'<div class="violation-box">⚠️ 위반 검토 대상입니다.(미등록)</div>', unsafe_allow_html=True)
+                
+                save_log_to_sheets(client, [now, search_val, "정보없음", "정보없음", "정보없음", "미등록", status_unreg])
+
+        if st.session_state["search_submitted"]:
+            st.divider()
+            if st.button("🔄 다시 점검하기"):
+                st.session_state["search_val"] = None
+                st.session_state["search_submitted"] = False
+                st.rerun()
 
 except Exception as e:
-    st.error(f"⚠️ 연결 오류가 발생했습니다.")
+    st.error(f"⚠️ 연결 오류가 발생했습니다. 원인: {e}")
