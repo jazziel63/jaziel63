@@ -16,27 +16,29 @@ def get_gspread_client():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
-        # 1. Secrets 데이터를 딕셔너리로 안전하게 복사
+        # Secrets 읽기
         secrets_dict = st.secrets["gcp_service_account"]
         info = {k: v for k, v in secrets_dict.items()}
         
         if "private_key" in info:
-            # 2. 텍스트로 인식된 \n을 실제 줄바꿈으로 변경하고 앞뒤 공백 제거
-            p_key = info["private_key"].replace("\\n", "\n").strip()
+            # 1. 혹시 모를 앞뒤의 따옴표나 불필요한 공백을 완전히 제거
+            p_key = info["private_key"].strip()
             
-            # 3. 양 끝에 혹시 모를 중복 따옴표('"')가 포함되어 있다면 제거 (에러 방지 핵심)
-            if p_key.startswith('"') and p_key.endswith('"'):
-                p_key = p_key[1:-1]
-            if p_key.startswith("'") and p_key.endswith("'"):
-                p_key = p_key[1:-1]
+            # 2. 텍스트 형태의 \n이 섞여있다면 실제 줄바꿈으로 변환
+            p_key = p_key.replace("\\n", "\n")
             
-            # 보정된 키를 다시 삽입
+            # 3. 만약 큰따옴표나 작은따옴표가 전체를 감싸고 있다면 한 번 더 제거
+            if (p_key.startswith('"') and p_key.endswith('"')) or (p_key.startswith("'") and p_key.endswith("'")):
+                p_key = p_key[1:-1].strip()
+            
+            # 4. 여러 줄 형식을 위해 불필요한 \r(캐리지 리턴) 제거
+            p_key = p_key.replace("\r", "")
+            
             info["private_key"] = p_key
         
         creds = Credentials.from_service_account_info(info, scopes=scope)
         return gspread.authorize(creds)
     except Exception as e:
-        # 에러 발생 시 원인을 구체적으로 표시하여 디버깅 지원
         st.error(f"인증 정보 로드 실패: {e}")
         return None
 
