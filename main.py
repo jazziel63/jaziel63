@@ -83,7 +83,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">🚗 학교 차량 출입 점검 시스템</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🚗 학교 차량 조회 시스템</div>', unsafe_allow_html=True)
 
 def get_now_kst():
     kst = timezone(timedelta(hours=9))
