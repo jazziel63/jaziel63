@@ -61,42 +61,28 @@ def get_violation_info(full_car_no):
     except:
         return False, ""
 
-# --- 스타일 설정 (+, - 버튼 제거 및 최적화) ---
+# --- 스타일 설정 ---
 st.markdown("""
     <style>
     html, body, [class*="css"]  { font-size: 0.92rem; }
     .main-title { font-size: 1.3rem !important; font-weight: bold; padding-bottom: 0.8rem; color: #31333F; }
-    
-    /* 결과 박스 스타일 */
     .violation-box, .normal-box { 
         font-weight: bold; padding: 10px; border-radius: 10px; text-align: center; 
         margin-top: 8px; margin-bottom: 8px; white-space: nowrap; overflow: hidden;
     }
     .violation-box { background-color: #FFF0F0; color: #FF4B4B; border: 2px solid #FF4B4B; }
     .normal-box { background-color: #F0F8FF; color: #1E90FF; border: 2px solid #1E90FF; }
-    
-    /* [수정] 입력창에서 +, - 버튼과 스피너 제거 */
     div[data-testid="InputInstructions"] { display: none !important; }
     div[data-testid="stNumberInput"] > label { display: none !important; }
-    
-    /* 크롬/사파리 등 브라우저 기본 스피너 제거 */
     input[type=number]::-webkit-inner-spin-button, 
     input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    
-    /* 스트림릿 전용 +, - 스텝 버튼 강제 숨김 */
     button[data-testid="stNumberInputStepDown"], 
     button[data-testid="stNumberInputStepUp"] { display: none !important; }
-    
-    /* 입력창 내부 패딩 조정으로 버튼 빈자리 메우기 */
-    .stNumberInput input { 
-        font-size: 1.1rem !important; 
-        height: 2.6rem !important; 
-        padding-right: 10px !important; 
-    }
+    .stNumberInput input { font-size: 1.1rem !important; height: 2.6rem !important; padding-right: 10px !important; }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">🚗 학교 차량 조회 시스템</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🚗 학교 차량 출입 조회 시스템</div>', unsafe_allow_html=True)
 
 def get_now_kst():
     kst = timezone(timedelta(hours=9))
@@ -112,7 +98,6 @@ try:
         data = sheet.get_all_records()
         df = pd.DataFrame(data).fillna("-")
 
-        # 입력창 (+, - 버튼이 CSS로 숨겨짐)
         search_val = st.number_input(
             label="차량번호조회", label_visibility="collapsed",
             min_value=0, max_value=9999, value=None, step=1, format="%d",
@@ -131,13 +116,19 @@ try:
             if not results.empty:
                 st.success(f"조회 결과 ({len(results)}건)")
                 for i, res in results.iterrows():
-                    full_car_no = res.get('차량번호', '-')
-                    name = res.get('성명', '-')
-                    category = res.get('구분', '-')
-                    car_type = res.get('차량종류', '-')
-                    reason = str(res.get('제외사유', '-')).strip()
+                    # --- [수정] 데이터가 비어 있거나 공백이면 '-'로 표시 ---
+                    def clean_val(val):
+                        s = str(val).strip()
+                        return s if s and s != "nan" else "-"
+
+                    full_car_no = clean_val(res.get('차량번호'))
+                    name = clean_val(res.get('성명'))
+                    category = clean_val(res.get('구분'))
+                    car_type = clean_val(res.get('차량종류'))
+                    reason = clean_val(res.get('제외사유'))
+                    
                     is_v, day_info = get_violation_info(full_car_no)
-                    has_exception = reason not in ["-", "해당없음", "정보 없음", "정보없음", ""]
+                    has_exception = reason not in ["-", "해당없음", "정보 없음", "정보없음"]
 
                     with st.expander(f"📍 {full_car_no} ({name})", expanded=True):
                         st.write(f"**차주:** {name} | **구분:** {category} | **차종:** {car_type}")
@@ -152,6 +143,7 @@ try:
                     else:
                         st.markdown(f'<div class="normal-box">✅ 정상 차량 {day_info}</div>', unsafe_allow_html=True)
                         status_for_log = f"정상 {day_info}"
+                    
                     save_log_to_sheets(client, [now, search_val, full_car_no, name, category, reason, "등록차량", status_for_log])
             else:
                 st.info("ℹ️ 미등록 차량입니다.")
