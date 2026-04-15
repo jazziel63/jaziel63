@@ -116,7 +116,6 @@ try:
             if not results.empty:
                 st.success(f"조회 결과 ({len(results)}건)")
                 for i, res in results.iterrows():
-                    # --- [수정] 데이터가 비어 있거나 공백이면 '-'로 표시 ---
                     def clean_val(val):
                         s = str(val).strip()
                         return s if s and s != "nan" else "-"
@@ -126,6 +125,8 @@ try:
                     category = clean_val(res.get('구분'))
                     car_type = clean_val(res.get('차량종류'))
                     reason = clean_val(res.get('제외사유'))
+                    # --- 비고 데이터 가져오기 ---
+                    note = clean_val(res.get('비고'))
                     
                     is_v, day_info = get_violation_info(full_car_no)
                     has_exception = reason not in ["-", "해당없음", "정보 없음", "정보없음"]
@@ -133,6 +134,9 @@ try:
                     with st.expander(f"📍 {full_car_no} ({name})", expanded=True):
                         st.write(f"**차주:** {name} | **구분:** {category} | **차종:** {car_type}")
                         st.write(f"**제외사유:** {reason}")
+                        # 비고 내용이 있으면 화면에 표시
+                        if note != "-":
+                            st.info(f"📝 **비고:** {note}")
 
                     if has_exception:
                         st.markdown(f'<div class="normal-box">✅ 정상 차량 ({reason})</div>', unsafe_allow_html=True)
@@ -144,7 +148,8 @@ try:
                         st.markdown(f'<div class="normal-box">✅ 정상 차량 {day_info}</div>', unsafe_allow_html=True)
                         status_for_log = f"정상 {day_info}"
                     
-                    save_log_to_sheets(client, [now, search_val, full_car_no, name, category, reason, "등록차량", status_for_log])
+                    # 로그 저장 시 마지막에 '비고' 항목 추가
+                    save_log_to_sheets(client, [now, search_val, full_car_no, name, category, reason, "등록차량", status_for_log, note])
             else:
                 st.info("ℹ️ 미등록 차량입니다.")
                 is_v_unreg, day_info_unreg = get_violation_info(search_num_str)
@@ -154,7 +159,8 @@ try:
                 else:
                     st.markdown(f'<div class="normal-box">✅ 정상 차량 {day_info_unreg}</div>', unsafe_allow_html=True)
                     status_unreg = f"정상(미등록) {day_info_unreg}"
-                save_log_to_sheets(client, [now, search_val, "정보없음", "정보없음", "정보없음", "정보없음", "미등록", status_unreg])
+                # 미등록 차량도 로그 형식을 맞추기 위해 '-' 추가
+                save_log_to_sheets(client, [now, search_val, "정보없음", "정보없음", "정보없음", "정보없음", "미등록", status_unreg, "-"])
 
             st.divider()
             st.button("🔄 다시 조회하기", on_click=reset_search, use_container_width=True)
