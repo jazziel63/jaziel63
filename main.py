@@ -161,7 +161,7 @@ try:
                                     st.write(f"**제외사유:** {reason}")
                                     if note != "-":
                                         st.info(f"📝 **비고:** {note}")
-                                    st.markdown(f'<div class="time-text">🕒 조회 완료 시간: {now}</div>', unsafe_allow_html=True)
+                                    st.markdown(f'<div class="time-text">🕒 조회 시간: {now}</div>', unsafe_allow_html=True)
 
                                 if has_exception:
                                     st.markdown(f'<div class="normal-box">✅ 정상 차량 ({reason})</div>', unsafe_allow_html=True)
