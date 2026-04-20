@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import gspread
 from google.oauth2.service_account import Credentials
 import requests
+from streamlit_javascript import st_javascript  # 방법 1 라이브러리 추가
 
 # 웹페이지 설정
 st.set_page_config(page_title="학교 차량 조회 시스템", layout="centered")
@@ -30,16 +31,14 @@ def get_gspread_client():
         return None
 
 def get_remote_ip():
-    try:
-        response = requests.get('https://api.ipify.org?format=json', timeout=5)
-        return response.json()['ip']
-    except:
-        return "IP 확인 불가"
+    # JavaScript를 사용하여 클라이언트 브라우저에서 직접 IP를 가져옵니다.
+    # 이 방식은 Streamlit 서버 IP가 아닌 접속자의 실제 IP를 반환합니다.
+    client_ip = st_javascript("fetch('https://api.ipify.org?format=json').then(response => response.json()).then(data => data.ip)")
+    return client_ip if client_ip else "IP 확인 중..."
 
 def save_log_to_sheets(client, log_data):
     try:
-        user_ip = get_remote_ip()
-        log_data.insert(1, user_ip)
+        # 이미 log_data에 IP가 포함되어 전달되므로 별도 insert 하지 않고 바로 저장
         sheet = client.open_by_url(URL).worksheet("log")
         sheet.append_row(log_data)
     except Exception as e:
@@ -91,6 +90,9 @@ def get_now_kst():
 def reset_search():
     st.session_state["search_val"] = None
 
+# 실제 IP를 미리 받아옵니다.
+user_ip = get_remote_ip()
+
 try:
     client = get_gspread_client()
     if client:
@@ -125,7 +127,6 @@ try:
                     category = clean_val(res.get('구분'))
                     car_type = clean_val(res.get('차량종류'))
                     reason = clean_val(res.get('제외사유'))
-                    # --- 비고 데이터 가져오기 ---
                     note = clean_val(res.get('비고'))
                     
                     is_v, day_info = get_violation_info(full_car_no)
@@ -134,7 +135,6 @@ try:
                     with st.expander(f"📍 {full_car_no} ({name})", expanded=True):
                         st.write(f"**차주:** {name} | **구분:** {category} | **차종:** {car_type}")
                         st.write(f"**제외사유:** {reason}")
-                        # 비고 내용이 있으면 화면에 표시
                         if note != "-":
                             st.info(f"📝 **비고:** {note}")
 
@@ -148,8 +148,9 @@ try:
                         st.markdown(f'<div class="normal-box">✅ 정상 차량 {day_info}</div>', unsafe_allow_html=True)
                         status_for_log = f"정상 {day_info}"
                     
-                    # 로그 저장 시 마지막에 '비고' 항목 추가
-                    save_log_to_sheets(client, [now, search_val, full_car_no, name, category, reason, "등록차량", status_for_log, note])
+                    # 로그 데이터 구성 (IP를 두 번째 열에 삽입)
+                    final_log = [now, user_ip, search_val, full_car_no, name, category, reason, "등록차량", status_for_log, note]
+                    save_log_to_sheets(client, final_log)
             else:
                 st.info("ℹ️ 미등록 차량입니다.")
                 is_v_unreg, day_info_unreg = get_violation_info(search_num_str)
@@ -159,8 +160,10 @@ try:
                 else:
                     st.markdown(f'<div class="normal-box">✅ 정상 차량 {day_info_unreg}</div>', unsafe_allow_html=True)
                     status_unreg = f"정상(미등록) {day_info_unreg}"
-                # 미등록 차량도 로그 형식을 맞추기 위해 '-' 추가
-                save_log_to_sheets(client, [now, search_val, "정보없음", "정보없음", "정보없음", "정보없음", "미등록", status_unreg, "-"])
+                
+                # 미등록 차량 로그 구성
+                final_log_unreg = [now, user_ip, search_val, "정보없음", "정보없음", "정보없음", "정보없음", "미등록", status_unreg, "-"]
+                save_log_to_sheets(client, final_log_unreg)
 
             st.divider()
             st.button("🔄 다시 조회하기", on_click=reset_search, use_container_width=True)
